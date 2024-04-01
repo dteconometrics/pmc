@@ -1,0 +1,1260 @@
+---
+title: "Pesquisa Mensal do Comércio"
+author: 'Núcleo de Dados <br><span style = "font-size: 70%;">ADEPE<br><a href="https://github.com/dteconometrics">`r fontawesome::fa("github", fill = "#282f6b")`</a>&nbsp; <a href="https://www.linkedin.com/in/vinicius-limeira-565117180/">`r fontawesome::fa("linkedin", fill = "#282f6b")`</a>&nbsp; <a href="mailto:vinicius.valenca@adepe.pe.gov.br">`r fontawesome::fa("envelope", fill = "#282f6b")`</a>&nbsp; <a href="https://www.adepe.pe.gov.br/">`r fontawesome::fa("home", fill = "#282f6b")`</a></span>'
+format: 
+  revealjs:
+    logo: "img/adepe_colorida.png"
+    width: 1200
+    slide-number: true
+    theme: [solarized, personalizacoes.scss]
+    title-slide-attributes:
+      #data-background-image: img/penguin-highway.jpg
+      data-background-size: cover  
+editor: visual
+---
+
+```{r setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+options(htmltools.preserve.raw = FALSE)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning   = FALSE,  # exibir avisos do console?
+  message   = FALSE,  # exibir mensagens do console?
+  dpi       = 300,    # resolução
+  fig.align = "center"# alinhamento de imagens
+  )
+```
+
+```{r utils, eval=TRUE}
+## Pacotes utilizados nessa apresentação
+library(tidyverse)
+library(lubridate)
+library(tstools)
+library(sidrar)
+library(zoo)
+library(scales)
+library(gridExtra)
+library(tsibble)
+library(timetk)
+library(knitr)
+library(kableExtra)
+
+# Acumular  valores percentuais em 'n' janelas móveis
+acum_i <- function(data, n){
+  
+  data_ma_n <- RcppRoll::roll_meanr(data, n)
+  
+  data_lag_n <- dplyr::lag(data_ma_n, n)
+  
+  data_acum_n = (((data_ma_n/data_lag_n)-1)*100)
+  
+  return(data_acum_n)
+  
+}
+
+
+names <- c('date', 'receita', 'volume', 'receita_sa', 'volume_sa')
+
+foot_ibge <- "Fonte: ADEPE com dados do IBGE"
+
+
+```
+
+```{r nacional, eval=TRUE}
+## Coleta e Tratamento dos Dados 
+
+ampliado = '/t/8881/n1/all/v/7169,7170/p/all/c11046/all/d/v7169%205,v7170%205' %>% 
+  sidrar::get_sidra(api =.) %>% 
+  mutate(date = parse_date(`Mês (Código)`, format = "%Y%m")) %>% 
+  dplyr::select(`Variável`, date, `Tipos de índice`, Valor) %>% 
+  spread(`Variável`, Valor) %>% 
+  pivot_wider(id_cols = date,
+              names_from = 'Tipos de índice',
+              values_from = c('PMC - Número-índice (2022=100)',
+                              'PMC - Número-índice com ajuste sazonal (2022=100)')) %>% 
+  `colnames<-`(names) %>% 
+   dplyr::select(date, receita, receita_sa, volume, volume_sa) %>% 
+   tibble::as_tibble()
+  
+
+## Metricas 
+
+
+ampliado = 
+  ampliado %>%
+  mutate(margem_receita = (receita_sa/lag(receita_sa,1)-1)*100) %>%
+  mutate(margem_volume = (volume_sa/lag(volume_sa,1)-1)*100) %>%
+  mutate(interanual_receita = (receita/lag(receita,12)-1)*100) %>%
+  mutate(interanual_volume = (volume/lag(volume,12)-1)*100) %>%
+  mutate(anual_receita = acum_i(receita,12)) %>%
+  mutate(anual_volume = acum_i(volume,12))
+
+
+## Transformar de wide para long
+ampliado_long = 
+  ampliado %>%
+  gather(variavel, valor, -date)
+
+
+## Coleta e Tratamento --------------------------
+
+names <- c('date', 'receita', 'volume', 'receita_sa', 'volume_sa')
+
+restrito_br = '/t/8880/n1/all/v/7169,7170/p/all/c11046/all/d/v7169%205,v7170%205' %>% 
+  sidrar::get_sidra(api=.) %>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = "%Y%m")) %>% 
+  select(`Variável`, date, `Tipos de índice`, Valor) %>% 
+  spread(`Variável`, Valor) %>% 
+  pivot_wider(id_cols = date, 
+              names_from = 'Tipos de índice',
+              values_from = c('PMC - Número-índice (2022=100)',
+                              'PMC - Número-índice com ajuste sazonal (2022=100)')) %>% 
+  `colnames<-`(names) %>% 
+  dplyr::select(date, receita, receita_sa, volume, volume_sa)
+
+## Calcular Métricas --------------------- 
+
+restrito_br = restrito_br %>% 
+  mutate(margem_receita = (receita_sa/lag(receita_sa,1)-1)*100) %>%
+  mutate(margem_volume = (volume_sa/lag(volume_sa,1)-1)*100) %>%
+  mutate(interanual_receita = (receita/lag(receita,12)-1)*100) %>%
+  mutate(interanual_volume = (volume/lag(volume,12)-1)*100) %>%
+  mutate(anual_receita = acum_i(receita,12)) %>%
+  mutate(anual_volume = acum_i(volume,12))
+
+
+## Formato long 
+
+restrito_br_long = restrito_br %>% 
+  gather(variavel, valor, -date)
+
+
+
+```
+
+```{r pernambuco, eval=TRUE}
+## Coleta e Tratamento dos Dados ---------------------
+
+ampliado_pe = '/t/8881/n3/26/v/7169,7170/p/all/c11046/all/d/v7169%205,v7170%205' %>% 
+  sidrar::get_sidra(api=.) %>% 
+  mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  select(`Variável`, date, `Tipos de índice`, Valor) %>% 
+  spread(`Variável`, Valor) %>% 
+  pivot_wider(id_cols = date,
+              names_from = 'Tipos de índice',
+              values_from = c('PMC - Número-índice (2022=100)',
+                              'PMC - Número-índice com ajuste sazonal (2022=100)')) %>% 
+  `colnames<-`(names) %>% 
+  dplyr::select(date, receita, receita_sa, volume, volume_sa) %>% 
+  as_tibble()
+
+
+
+## Criar métricas de variação do Comércio ampliado ------------
+
+ampliado_pe = 
+  ampliado_pe %>%
+  mutate(margem_receita = (receita_sa/lag(receita_sa,1)-1)*100) %>%
+  mutate(margem_volume = (volume_sa/lag(volume_sa,1)-1)*100) %>%
+  mutate(interanual_receita = (receita/lag(receita,12)-1)*100) %>%
+  mutate(interanual_volume = (volume/lag(volume,12)-1)*100) %>%
+  mutate(anual_receita = acum_i(receita,12)) %>%
+  mutate(anual_volume = acum_i(volume,12))
+
+
+## Transformar de wide para long --------------
+ampliado_long_pe = 
+  ampliado_pe %>%
+  gather(variavel, valor, -date)
+
+
+# Coleta e Tratamento ----------------
+
+restrito_pe = '/t/8880/n3/26/v/7169,7170/p/all/c11046/all/d/v7169%205,v7170%205' %>% 
+  sidrar::get_sidra(api=.) %>% 
+  mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(`Variável`, date, `Tipos de índice`, Valor) %>% 
+  spread(`Variável`, Valor) %>% 
+  pivot_wider(id_cols = date, 
+              names_from = 'Tipos de índice',
+              values_from = c('PMC - Número-índice (2022=100)',
+                              'PMC - Número-índice com ajuste sazonal (2022=100)')) %>% 
+  `colnames<-`(names) %>% 
+  select(date, receita, receita_sa, volume, volume_sa) %>% 
+  as_tibble()
+  
+## Metricas -----------------
+
+## Criar métricas de variação do Comércio Restrito
+restrito_pe = 
+  restrito_pe %>%
+  mutate(margem_receita = (receita_sa/lag(receita_sa,1)-1)*100) %>%
+  mutate(margem_volume = (volume_sa/lag(volume_sa,1)-1)*100) %>%
+  mutate(interanual_receita = (receita/lag(receita,12)-1)*100) %>%
+  mutate(interanual_volume = (volume/lag(volume,12)-1)*100) %>%
+  mutate(anual_receita = acum_i(receita,12)) %>%
+  mutate(anual_volume = acum_i(volume,12))
+
+## Transformar de wide para long
+restrito_long_pe = 
+  restrito_pe %>%
+  gather(variavel, valor, -date)
+
+
+# Resultado por setor  
+
+## Margem Volume e Receita 
+
+margem_setor_receita = '/t/8883/n3/26/v/11709/p/all/c11046/56735/c85/all/d/v11709%201' %>% 
+  sidrar::get_sidra(api=.) %>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(date, Valor, Atividades) %>% 
+  drop_na() %>% 
+  dplyr::rename(margem_receita = Valor) %>% 
+  as_tibble()
+
+margem_setor_volume = '/t/8883/n3/26/v/11709/p/all/c11046/56736/c85/all/d/v11709%201' %>% 
+  sidrar::get_sidra(api = .) %>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(date, Valor, Atividades) %>% 
+  drop_na() %>% 
+  dplyr::rename(margem_volume = Valor) %>% 
+  as_tibble()
+  
+
+setor_margem = inner_join(margem_setor_receita, margem_setor_volume, by = c("date", "Atividades")) %>% 
+  dplyr::select(date, Atividades, margem_receita, margem_volume)
+
+
+## Variação Interanual Volume e Receita 
+
+
+interanual_setor_receita = '/t/8883/n3/26/v/11710/p/all/c11046/56735/c85/all/d/v11710%201' %>% 
+  sidrar::get_sidra(api = .)%>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(date, Valor, Atividades) %>% 
+  drop_na() %>% 
+  dplyr::rename(interanual_receita = Valor) %>% 
+  as_tibble()
+
+
+interanual_setor_volume = '/t/8883/n3/26/v/11710/p/all/c11046/56736/c85/all/d/v11710%201' %>% 
+  sidrar::get_sidra(api=.) %>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(date, Valor, Atividades) %>% 
+  drop_na() %>% 
+  dplyr::rename(interanual_volume = Valor) %>% 
+  as_tibble()
+
+
+
+setor_interanual = inner_join(interanual_setor_receita, interanual_setor_volume, by = c("date", "Atividades")) %>% 
+  dplyr::select(date, Atividades, interanual_receita, interanual_volume)
+
+
+
+## Variação Anual Volume e Receita 
+
+
+anual_setor_receita = '/t/8883/n3/26/v/11711/p/all/c11046/56735/c85/all/d/v11711%201' %>% 
+  sidrar::get_sidra(api = .)%>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(date, Valor, Atividades) %>% 
+  drop_na() %>% 
+  dplyr::rename(anual_receita = Valor) %>% 
+  as_tibble()
+
+
+anual_setor_volume = '/t/8883/n3/26/v/11711/p/all/c11046/56736/c85/all/d/v11711%201' %>% 
+  sidrar::get_sidra(api=.) %>% 
+  dplyr::mutate(date = parse_date(`Mês (Código)`, format = '%Y%m')) %>% 
+  dplyr::select(date, Valor, Atividades) %>% 
+  drop_na() %>% 
+  dplyr::rename(anual_volume = Valor) %>% 
+  as_tibble()
+
+
+
+setor_anual = inner_join(anual_setor_receita, anual_setor_volume, by = c("date", "Atividades")) %>% 
+  dplyr::select(date, Atividades, anual_receita, anual_volume)
+
+
+
+```
+
+### Sumário {.smaller}
+
+-   Sobre os Resultados<br><br>
+    -   Resultado Nacional<br><br>
+    -   Resultado Estadual <br><br>
+
+## **Sumário Empresarial** {background-color=""}
+
+- O comércio varejista registrou um crescimento significativo em janeiro de 2024, tanto a nível nacional quanto no estado de Pernambuco. Destacam-se os resultados positivos na Produção Mensal do Comércio (PMC), indicando uma recuperação contínua do setor.
+
+- Em Pernambuco, apesar dos resultados negativos em relação ao mês anterior, houve uma melhora considerável em comparação com o mesmo período do ano anterior, especialmente nos setores de livros, atacado e farmacêuticos. 
+
+- A nível nacional, embora tenha havido uma leve diminuição na margem, os números interanuais mostraram uma recuperação sólida, com destaque para os setores de atacado e hipermercado. Esses resultados refletem uma tendência positiva e promissora para o comércio varejista em ambos os contextos.
+
+## **Resultado Nacional** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+-  Em janeiro de 2024, o comércio varejista registrou um aumento significativo no volume de vendas, com um crescimento de 2,5% em relação ao mês anterior, após uma queda de 0.73%. Esse desempenho superou as expectativas do mercado, que variavam entre uma queda de 1,1% e um aumento de 1,9%, com uma mediana de 0,2%.
+
+- Na comparação com o mesmo período do ano anterior, o volume de vendas do varejo aumentou 6,82%, superando o crescimento de 0,07% observado no mês anterior. Essa aceleração foi além das expectativas dos analistas, que previam um intervalo de variação entre uma queda de 1,9% e um aumento de 3,3%, com uma mediana de 0,8%.
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Margem
+
+```{r}
+
+ampliado %>%
+  select(date, margem_receita, margem_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações marginais BR') 
+
+
+```
+
+### Interanual Receita
+
+```{r}
+
+
+ampliado %>%
+  select(date, interanual_receita, interanual_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações interanuais BR') 
+
+
+```
+
+### Variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+ampliado %>%
+  select(date, anual_receita, anual_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações anuais BR') 
+
+
+
+
+```
+:::
+:::
+:::
+
+## Visualização {.smaller}
+
+::: columns
+::: {.column width="50%"}
+**Variação na Margem**
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+
+labels = as_labeller(c(margem_receita= 'Receita', 
+                       margem_volume= 'Volume'))
+
+ampliado_long %>%
+  filter(date > '2023-07-01',
+         variavel %in% c('margem_receita', 'margem_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_bar(aes(colour=variavel, fill=variavel), 
+           stat='identity')+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  theme_minimal()+
+  scale_colour_manual(values=c('yellow', 'yellow'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação marginal (%)',
+       caption=foot_ibge)
+
+```
+
+
+Acima, podemos observar as variações da PMC graficamente. É evidente um resultado forte em todas as métricas analisadas. É importante para o setor dado que aumenta o tickete médio do comércio. 
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+## variação Interanual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(interanual_receita= 'Receita', 
+                       interanual_volume= 'Volume'))
+
+ampliado_long %>%
+  filter(date > '2023-01-01',
+         variavel %in% c('interanual_receita', 'interanual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação interanual (%)',
+       caption=foot_ibge)
+
+```
+
+## variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+labels = as_labeller(c(anual_receita= 'Receita', 
+                       anual_volume= 'Volume'))
+
+ampliado_long %>%
+  filter(date > '2014-01-01',
+         variavel %in% c('anual_receita', 'anual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('6 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação anual (%)',
+       caption=foot_ibge)
+
+
+```
+:::
+:::
+:::
+
+
+
+## **Resultado Nacional** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+-  Os dados apresentados revelam um desempenho robusto na Produção Mensal do Comércio (PMC), com crescimento em todas as métricas analisadas. Este resultado positivo indica uma recuperação contínua do setor varejista, superando as expectativas do mercado. Essa tendência ascendente sugere um ambiente econômico favorável e promissor para os próximos períodos
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Visualização Geral
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+labels = as_labeller(c(margem_receita = 'Variação Margem Receita',
+                       margem_volume = 'Variação Margem Volume',
+                       interanual_receita = 'Variação Interanual Receita',
+                       interanual_volume = 'Variação Interanual Volume',
+                       anual_receita= 'Variação anual Receita', 
+                       anual_volume= 'Variação anual Volume'))
+
+colours <- c("#428953", "#CE2929", "#A3DD57", "#77E599", "#5675D6",
+             "#65ECEF")
+
+ampliado_long %>%
+  filter(date > '2014-01-01',
+         variavel %in% c('anual_receita', 'anual_volume',
+                         "margem_receita", "margem_volume",
+                         "interanual_receita", "interanual_volume")) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=colours)+
+  scale_colour_manual(values=colours)+
+  scale_x_date(breaks = date_breaks('1 year'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=8, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=12, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista ampliado (%)',
+       caption=foot_ibge)
+
+
+
+
+
+```
+:::
+:::
+:::
+
+## **Resultado Pernambuco** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+- Na análise mensal, Pernambuco apresentou uma melhora em relação ao mês anterior, apesar dos resultados ainda serem negativos. A variação na receita passou de -5,04% para -2,59%, enquanto o volume de vendas saiu de -4,47% para -1,46%.
+
+- Entretanto, olhando para a comparação com o mesmo período do ano anterior, os resultados continuam positivos, refletindo o desempenho observado em dezembro. Houve uma pequena melhora na receita interanual, de 4,88% para 5,22%, e no volume, de 3,86% para 4,85%.
+
+
+- No acumulado, os valores também são positivos, com um crescimento de 5,72% na receita e de 3,92% no volume, evidenciando uma recuperação consistente apesar dos desafios enfrentados no curto prazo.
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Margem
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+ampliado_pe %>%
+  select(date, margem_receita, margem_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações marginais') 
+
+
+```
+
+### Interanual Receita
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+ampliado_pe %>%
+  select(date, interanual_receita, interanual_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações interanuais') 
+
+
+
+```
+
+### Variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+ampliado_pe %>%
+  select(date, anual_receita, anual_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações anuais') 
+
+
+
+
+```
+:::
+:::
+:::
+
+## Visualização {.smaller}
+
+::: columns
+::: {.column width="50%"}
+**Variação na Margem**
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+labels = as_labeller(c(margem_receita= 'Receita', 
+                       margem_volume= 'Volume'))
+
+ampliado_long_pe %>%
+  filter(date > '2023-07-01',
+         variavel %in% c('margem_receita', 'margem_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_bar(aes(colour=variavel, fill=variavel), 
+           stat='identity')+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('#1320d4', '#0ce8e4'))+
+  scale_colour_manual(values=c('#0acdf0', '#91b8bd'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação marginal PE (%)',
+       caption=foot_ibge)
+
+```
+
+
+- acima os resultados para Pernambuco, observa-se uma queda na margem, ainda que menor e o resultado fote nas outras métricas. 
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+## variação Interanual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+labels = as_labeller(c(interanual_receita= 'Receita', 
+                       interanual_volume= 'Volume'))
+
+ampliado_long_pe %>%
+  filter(date > '2022-07-01',
+         variavel %in% c('interanual_receita', 'interanual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação interanual PE(%)',
+       caption=foot_ibge)
+
+```
+
+## variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(anual_receita= 'Receita', 
+                       anual_volume= 'Volume'))
+
+ampliado_long_pe %>%
+  filter(date > '2022-01-01',
+         variavel %in% c('anual_receita', 'anual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('6 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação anual PE (%)',
+       caption=foot_ibge)
+
+
+
+```
+
+
+:::
+:::
+:::
+
+## **Resumo PE** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+-   Pernambuco apresentou uma melhora significativa em seus indicadores de comércio varejista em relação ao mês anterior, embora ainda tenham registrado variações negativas tanto na receita quanto no volume de vendas
+
+- A variação interanual e anual permanece positiva, refletindo a alta performance do mês de dezembro, com uma ligeira melhoria nos índices.
+
+
+- No acumulado, os números também são positivos, sugerindo uma tendência de recuperação contínua. Esses resultados indicam uma resiliência e uma trajetória de crescimento para o estado de Pernambuco. 
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Visualização Geral
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+labels = as_labeller(c(margem_receita = 'Variação Margem Receita',
+                       margem_volume = 'Variação Margem Volume',
+                       interanual_receita = 'Variação Interanual Receita',
+                       interanual_volume = 'Variação Interanual Volume',
+                       anual_receita= 'Variação anual Receita', 
+                       anual_volume= 'Variação anual Volume'))
+
+colours <- c("#428953", "#CE2929", "#A3DD57", "#77E599", "#5675D6",
+             "#65ECEF")
+
+ampliado_long_pe %>%
+  filter(date > '2014-01-01',
+         variavel %in% c('anual_receita', 'anual_volume',
+                         "margem_receita", "margem_volume",
+                         "interanual_receita", "interanual_volume")) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=colours)+
+  scale_colour_manual(values=colours)+
+  scale_x_date(breaks = date_breaks('1 year'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=8, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=12, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista ampliado PE (%)',
+       caption=foot_ibge)
+
+
+
+
+```
+:::
+:::
+:::
+
+## **Resultado PMC Restrito BR** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+- Analisando os resultados da Produção Mensal do Comércio (PMC) em âmbito nacional, notamos uma leve diminuição na margem, com a receita passando de 103,56 para 99,66, e o volume de vendas refletindo uma tendência similar
+
+- Entretanto, ao compararmos com o mesmo período do ano anterior, observamos uma melhora considerável nos resultados. A variação interanual na receita subiu de 3,85% para 5,75%, enquanto no volume de vendas houve um aumento significativo, passando de 1,25% para 4,07%.
+
+- No acumulado, apesar de uma leve queda na receita, que ficou em 3,71%, o volume registrou uma melhora sutil, atingindo 1,76%.
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Margem
+
+```{r}
+
+restrito_br %>% 
+  select(date, receita, volume) %>% 
+  tail() %>% 
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align = 'c',
+        caption = 'PMC: números-índices e variações marginais')
+
+
+```
+
+### Interanual Receita
+
+```{r}
+
+
+restrito_br %>% 
+  dplyr::select(date, interanual_receita, interanual_volume) %>% 
+  tail() %>% 
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align = 'c',
+        caption = 'PMC: números-índices e variações interanuais')
+
+```
+
+### Variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+restrito_br %>% 
+  dplyr::select(date, anual_receita, anual_volume) %>% 
+  tail() %>% 
+  kable(digits = 2, 
+        col.names = c('Date', 'Receita', 'Volume'),
+        align = 'c',
+        caption = 'PMC: números-índices e variações anuais')
+
+
+
+```
+:::
+:::
+:::
+
+## Visualização Restrito {.smaller}
+
+Aqui vem o Texto:
+
+::: columns
+::: {.column width="50%"}
+**Variação na Margem**
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(margem_receita = 'Receita',
+                       margem_volume = 'Volume'))
+
+
+restrito_br_long %>% 
+  filter(date > '2022-07-01',
+         variavel %in% c('margem_receita', 'margem_volume')) %>% 
+  ggplot2::ggplot(aes(x = date, valor, colour = variavel))+
+  geom_bar(aes(colour = variavel, fill=variavel),
+           stat = 'identity')+
+  facet_wrap(~variavel, scales = 'free', labeller = labels)+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme_minimal()+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação marginal (%) Br',
+       caption=foot_ibge)
+
+```
+
+
+- Os resultados mencionados anteriormente estão refletidos acima. Notavelmente, destaca-se o volume, que se apresenta como o valor mais expressivo na margem
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+## variação Interanual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(anual_receita= 'Receita', 
+                       anual_volume= 'Volume'))
+
+
+last_obs_comp <- restrito_br_long %>% 
+  filter(variavel %in% c('anual_receita', 'anual_volume')) %>% 
+  group_by(variavel) %>% 
+  filter(date == max(date)) %>%
+  ungroup()
+  
+
+
+restrito_br_long %>%
+  filter(date > '2014-01-01',
+         variavel %in% c('anual_receita', 'anual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('6 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme_minimal()+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação anual (%) Br',
+       caption= foot_ibge)
+
+
+```
+
+## variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(interanual_receita= 'Receita', 
+                       interanual_volume= 'Volume'))
+
+restrito_br_long %>%
+  filter(date > '2022-01-01',
+         variavel %in% c('interanual_receita', 'interanual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('darkblue', 'darkgray'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme_minimal()+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação interanual (%) BR',
+       caption=foot_ibge)
+
+
+
+```
+:::
+:::
+:::
+
+## **Resultado PMC Restrito PE** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+- No resultado restrito, Pernambuco demonstrou um desempenho positivo em todas as métricas. A variação na margem revela uma mudança significativa em relação ao mês anterior, onde a receita, anteriormente em -0,25%, agora alcançou 2,00%, enquanto o volume de vendas subiu de 0,08% para 2,91%.
+
+- Além disso, ao compararmos com o mesmo mês do ano anterior, notamos uma evolução considerável. A variação na receita passou de 1,21% para 5,19%, enquanto o volume de vendas saiu de -1,17% para 4,32%. Esses números evidenciam uma recuperação notável e indicam uma tendência positiva para o comércio varejista em Pernambuco.
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Margem
+
+```{r}
+
+restrito_pe %>%
+  select(date, margem_receita, margem_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações marginais PE ') 
+
+```
+
+### Interanual Receita
+
+```{r}
+
+restrito_pe %>%
+  select(date, interanual_receita, interanual_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações interanuais Pe') 
+
+
+```
+
+### Variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=10, fig.height=8, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+restrito_pe %>%
+  select(date, anual_receita, anual_volume) %>%
+  tail() %>%
+  kable(digits = 2,
+        col.names = c('Date', 'Receita', 'Volume'),
+        align='c',
+        caption='PMC: números-índices e variações anuais Pe') 
+
+
+
+```
+:::
+:::
+:::
+
+## Visualização Restrito PE {.smaller}
+
+
+::: columns
+::: {.column width="50%"}
+**Variação na Margem**
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(margem_receita= 'Receita', 
+                       margem_volume= 'Volume'))
+
+
+restrito_long_pe %>% 
+  filter(date > '2021-07-01',
+         variavel %in% c('margem_receita', 'margem_volume')) %>% 
+  ggplot(aes(x =date, y = valor, colour = variavel))+
+  geom_bar(aes(colour=variavel, fill=variavel),
+           stat='identity')+
+  facet_wrap(~variavel, scales = 'free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('darkblue', 'darkgray'))+
+  scale_colour_manual(values=c('#336666', '#91b8bd'))+
+  scale_x_date(breaks = date_breaks('1 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação marginal (%)',
+       caption=foot_ibge)
+
+```
+
+
+Ao observar os resultados apresentados acima, destaca-se o desempenho positivo, especialmente na margem.
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+## variação Interanual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+labels = as_labeller(c(interanual_receita = 'Receita', 
+                       interanual_volume = 'Volume'))
+
+restrito_long_pe %>%
+  filter(date > '2014-01-01',
+         variavel %in% c('interanual_receita', 'interanual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('#336666', '#91b8bd'))+
+  scale_colour_manual(values=c('#336666', '#91b8bd'))+
+  scale_x_date(breaks = date_breaks('6 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação anual (%)',
+       caption= foot_ibge)
+
+
+
+```
+
+## variação Anual
+
+```{r, echo=F, eval=T, results='asis', fig.width=8, fig.height=4, fig.align='center', out.width="1\\linewidth", warning=FALSE, message=FALSE, size='tiny'}
+
+
+labels = as_labeller(c(anual_receita= 'Receita', 
+                       anual_volume= 'Volume'))
+
+restrito_long_pe %>%
+  filter(date > '2014-01-01',
+         variavel %in% c('anual_receita', 'anual_volume')) %>%
+  ggplot(aes(x=date, y=valor, colour=variavel))+
+  geom_line(aes(colour=variavel, fill=variavel), 
+           size=.8)+
+  facet_wrap(~variavel, scales='free', labeller = labels)+
+  theme_minimal()+
+  scale_fill_manual(values=c('#336666', '#91b8bd'))+
+  scale_colour_manual(values=c('#336666', '#91b8bd'))+
+  scale_x_date(breaks = date_breaks('6 month'),
+               labels = date_format("%b/%Y"))+
+  geom_hline(yintercept=0, colour='black', linetype='dashed')+
+  theme(legend.position = 'none',
+        strip.text = element_text(size=10, face='bold'),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        plot.title = element_text(size=10, face='bold'))+
+  labs(x='', y='',
+       title='Comércio Varejista: variação anual (%)',
+       caption= foot_ibge)
+
+
+
+```
+:::
+:::
+:::
+
+## **Resultado PMC por Setor** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+
+- Agora podemos analisar os setores, com destaque para os segmentos de livros e produtos similares, atacado e artigos farmacêuticos.
+
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Margem Tabela 1
+
+```{r}
+
+# Tabela 1: Últimas 6 observações
+tabela1 <- tail(setor_margem, n = 6)
+
+kable(tabela1,
+      digits = 2,
+      col.names = c("Data", "Setor", "Receita", "Volume"),
+      align = 'c',
+      caption = 'Variação na margem por Setor tabela 1')
+
+```
+
+### Variação na Margem Tabela 2
+
+```{r}
+tabela2 <- setor_margem[(nrow(setor_margem) - 11):(nrow(setor_margem) - 6), ]
+
+kable(tabela2,
+      digits = 2,
+      col.names = c("Data", "Setor", "Receita", "Volume"),
+      align = 'c',
+      caption = 'Variação Interanual por Setor tabela 2')
+
+```
+:::
+:::
+:::
+
+## **Resultado PMC por Setor** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+- Na variação em comparação com o mesmo mês do ano anterior, novamente destacam-se os mesmos setores, refletindo o que pode ser um padrão na série histórica.
+
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Interanual Tabela 1
+
+```{r}
+
+# Tabela 1: Últimas 6 observações
+tabela1 <- tail(setor_interanual, n = 6)
+
+kable(tabela1,
+      digits = 2,
+      col.names = c("Data", "Setor", "Receita", "Volume"),
+      align = 'c',
+      caption = 'Variação na interanual por Setor tabela 1')
+
+```
+
+### Variação interanual Tabela 2
+
+```{r}
+tabela2 <- setor_interanual[(nrow(setor_interanual) - 11):(nrow(setor_interanual) - 6), ]
+
+kable(tabela2,
+      digits = 2,
+      col.names = c("Data", "Setor", "Receita", "Volume"),
+      align = 'c',
+      caption = 'Variação Interanual por Setor tabela 2')
+
+```
+:::
+:::
+:::
+
+## **Resultado PMC por Setor** {.smaller}
+
+::: columns
+::: {.column width="50%"}
+<br>
+
+ No acumulado o setor de atacado e hipermercado são os destaques. 
+
+
+:::
+
+::: {.column width="50%"}
+::: panel-tabset
+### Variação na Anul Tabela 1
+
+```{r}
+
+# Tabela 1: Últimas 6 observações
+tabela1 <- tail(setor_anual, n = 6)
+
+kable(tabela1,
+      digits = 2,
+      col.names = c("Data", "Setor", "Receita", "Volume"),
+      align = 'c',
+      caption = 'Variação anual por Setor tabela 1')
+
+```
+
+### Variação na Anual Tabela 2
+
+```{r}
+tabela2 <- setor_anual[(nrow(setor_anual) - 11):(nrow(setor_anual) - 6), ]
+
+kable(tabela2,
+      digits = 2,
+      col.names = c("Data", "Setor", "Receita", "Volume"),
+      align = 'c',
+      caption = 'Variação Anual por Setor tabela 2')
+
+```
+:::
+:::
+:::
